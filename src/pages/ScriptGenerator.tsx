@@ -1,36 +1,26 @@
-
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { generateScript } from '../services/geminiService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
+import { Trash, Edit } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
 import { Script } from '../types/supabase';
 
-interface SavedScript {
-  id: string;
-  title: string;
-  prompt: string;
-  content: string;
-  created_at: string | number;
-}
-
 const ScriptGenerator = () => {
-  const [geminiKey] = useLocalStorage<string>('gemini-key', '');
+  const [scripts, setScripts] = useState<Script[]>([]);
+  const [title, setTitle] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('');
-  const [generatedScript, setGeneratedScript] = useState<string>('');
+  const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [loadingScripts, setLoadingScripts] = useState<boolean>(false);
-  const [savedScripts, setSavedScripts] = useState<SavedScript[]>([]);
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
 
-  // Fetch scripts from Supabase on component mount
   useEffect(() => {
     fetchScripts();
   }, []);
@@ -48,14 +38,21 @@ const ScriptGenerator = () => {
       }
       
       if (data) {
-        setSavedScripts(data);
+        setScripts(data as Script[]);
       }
     } catch (error) {
       console.error('Error fetching scripts:', error);
-      toast.error('Failed to load saved scripts');
+      toast.error('Failed to load scripts');
     } finally {
       setLoadingScripts(false);
     }
+  };
+
+  const clearForm = () => {
+    setTitle('');
+    setPrompt('');
+    setContent('');
+    setEditingScriptId(null);
   };
 
   const handleGenerate = async () => {
@@ -64,19 +61,12 @@ const ScriptGenerator = () => {
       return;
     }
 
-    if (!geminiKey) {
-      toast.error('Please set your Gemini API key in settings');
-      return;
-    }
-
     setLoading(true);
     try {
-      const result = await generateScript(prompt, geminiKey);
-      if (result.error) {
-        toast.error(result.error);
-      } else {
-        setGeneratedScript(result.content);
-      }
+      // Simulate generating content (replace with actual AI generation)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      setContent(`Generated content based on prompt: ${prompt}`);
+      toast.success('Script generated!');
     } catch (error) {
       console.error('Error generating script:', error);
       toast.error('Failed to generate script');
@@ -85,39 +75,78 @@ const ScriptGenerator = () => {
     }
   };
 
-  const handleSaveScript = async () => {
-    if (!generatedScript.trim()) {
-      toast.error('No script to save');
-      return;
-    }
-
-    const scriptTitle = prompt.split(' ').slice(0, 5).join(' ') + '...';
-    
+  const saveScript = async (script: { title: string; prompt: string; content: string }) => {
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('scripts')
-        .insert([
-          {
-            title: scriptTitle,
-            prompt: prompt,
-            content: generatedScript,
-          }
-        ])
-        .select();
+        .insert({
+          title: script.title,
+          prompt: script.prompt,
+          content: script.content
+        });
       
       if (error) {
         throw error;
       }
       
-      toast.success('Script saved successfully');
-      fetchScripts(); // Refresh the scripts list
+      fetchScripts();
+      toast.success('Script saved successfully!');
     } catch (error) {
       console.error('Error saving script:', error);
       toast.error('Failed to save script');
     }
   };
 
-  const handleDeleteScript = async (id: string) => {
+  const handleSave = async () => {
+    if (!title.trim() || !prompt.trim() || !content.trim()) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (editingScriptId) {
+      handleUpdate();
+      return;
+    }
+
+    await saveScript({ title, prompt, content });
+    clearForm();
+  };
+
+  const handleEdit = (script: Script) => {
+    setEditingScriptId(script.id);
+    setTitle(script.title);
+    setPrompt(script.prompt);
+    setContent(script.content);
+  };
+
+  const handleUpdate = async () => {
+    if (!editingScriptId) return;
+
+    try {
+      const { error } = await supabase
+        .from('scripts')
+        .update({
+          title: title,
+          prompt: prompt,
+          content: content
+        })
+        .eq('id', editingScriptId);
+      
+      if (error) {
+        throw error;
+      }
+      
+      fetchScripts();
+      toast.success('Script updated successfully!');
+    } catch (error) {
+      console.error('Error updating script:', error);
+      toast.error('Failed to update script');
+    } finally {
+      clearForm();
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     try {
       const { error } = await supabase
         .from('scripts')
@@ -128,54 +157,66 @@ const ScriptGenerator = () => {
         throw error;
       }
       
-      setSavedScripts(savedScripts.filter(script => script.id !== id));
-      toast.success('Script deleted');
+      fetchScripts();
+      toast.success('Script deleted successfully!');
     } catch (error) {
       console.error('Error deleting script:', error);
       toast.error('Failed to delete script');
     }
   };
 
-  const handleLoadScript = (script: SavedScript) => {
-    setPrompt(script.prompt);
-    setGeneratedScript(script.content);
-  };
-
   return (
-    <div className="transition-all hover:scale-[1.01]">
+    <div>
       <PageTitle 
-        title="Script Generator" 
-        description="Create scripts using Gemini AI" 
+        title="AI Script Generator" 
+        description="Generate scripts for videos, ads, and more" 
       />
 
-      <Tabs defaultValue="generate">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate" className="transition-colors hover:bg-primary/20">Generate</TabsTrigger>
-          <TabsTrigger value="saved" className="transition-colors hover:bg-primary/20">Community Scripts</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="generate" className="space-y-4 mt-4">
-          <Card className="transition-shadow hover:shadow-lg">
-            <CardHeader>
-              <CardTitle>Script Prompt</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="prompt">What would you like to create?</Label>
-                  <Textarea 
-                    id="prompt"
-                    placeholder="Enter your script idea, e.g., 'Create a movie script about a detective who can talk to plants'"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="min-h-32 transition-colors hover:border-primary"
-                  />
-                </div>
-                
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="order-2 md:order-1 transition-shadow hover:shadow-lg">
+          <CardHeader>
+            <CardTitle>{editingScriptId ? 'Edit Script' : 'Create Script'}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="title">Title</Label>
+                <Textarea 
+                  id="title"
+                  placeholder="Enter script title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="transition-colors hover:border-primary"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="prompt">Prompt</Label>
+                <Textarea 
+                  id="prompt"
+                  placeholder="Enter your script description, e.g., 'A promotional video script for a new coffee shop'"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  className="transition-colors hover:border-primary"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="content">Content</Label>
+                <Textarea 
+                  id="content"
+                  placeholder="Generated script content will appear here"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  className="transition-colors hover:border-primary"
+                />
+              </div>
+
+              <div className="flex gap-2">
                 <Button 
                   onClick={handleGenerate} 
-                  disabled={loading || !prompt.trim() || !geminiKey}
-                  className="w-full transition-colors hover:bg-primary/80"
+                  disabled={loading || !prompt.trim()}
+                  className="w-1/2 transition-colors hover:bg-primary/80"
                 >
                   {loading ? (
                     <>
@@ -187,88 +228,65 @@ const ScriptGenerator = () => {
                   )}
                 </Button>
                 
-                {!geminiKey && (
-                  <p className="text-sm text-destructive">
-                    Please add your Gemini API key in settings
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          
-          {generatedScript && (
-            <Card className="transition-shadow hover:shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Generated Script</CardTitle>
                 <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={handleSaveScript}
-                  className="transition-colors hover:bg-primary/20"
+                  onClick={handleSave} 
+                  disabled={!title.trim() || !prompt.trim() || !content.trim()}
+                  className="w-1/2 transition-colors hover:bg-primary/80"
                 >
-                  Share Script
+                  {editingScriptId ? 'Update Script' : 'Save Script'}
                 </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="bg-muted/30 p-4 rounded-md overflow-y-auto max-h-96 text-left whitespace-pre-wrap">
-                  {generatedScript}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="saved" className="mt-4">
-          {loadingScripts ? (
-            <div className="flex justify-center p-12">
-              <LoadingSpinner size="lg" />
+              </div>
             </div>
-          ) : savedScripts.length > 0 ? (
-            <div className="space-y-4">
-              {savedScripts.map((script) => (
-                <Card key={script.id} className="transition-shadow hover:shadow-lg">
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg truncate">{script.title}</CardTitle>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => handleLoadScript(script)}
-                          className="transition-colors hover:bg-primary/20"
-                        >
-                          Load
-                        </Button>
-                        <Button 
-                          variant="destructive" 
-                          size="sm" 
-                          onClick={() => handleDeleteScript(script.id)}
-                          className="transition-colors hover:bg-destructive/80"
-                        >
-                          Delete
-                        </Button>
-                      </div>
+          </CardContent>
+        </Card>
+
+        <Card className="order-1 md:order-2 transition-shadow hover:shadow-lg">
+          <CardHeader>
+            <CardTitle>Saved Scripts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {loadingScripts ? (
+              <div className="flex justify-center">
+                <LoadingSpinner size="lg" />
+              </div>
+            ) : scripts.length > 0 ? (
+              <div className="space-y-4">
+                {scripts.map((script) => (
+                  <div key={script.id} className="p-4 rounded-md border">
+                    <h3 className="text-lg font-semibold">{script.title}</h3>
+                    <p className="text-sm text-muted-foreground line-clamp-2">{script.prompt}</p>
+                    <div className="flex justify-end gap-2 mt-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleEdit(script)}
+                        className="transition-colors hover:bg-primary/20"
+                      >
+                        <Edit className="w-4 h-4 mr-1" />
+                        Edit
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => handleDelete(script.id)}
+                        className="transition-colors hover:bg-destructive/20"
+                      >
+                        <Trash className="w-4 h-4 mr-1" />
+                        Delete
+                      </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(script.created_at).toLocaleDateString()}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground line-clamp-3">
-                      {script.content}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <EmptyState 
-              title="No saved scripts yet"
-              description="Generate and share scripts to see them here"
-            />
-          )}
-        </TabsContent>
-      </Tabs>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState 
+                title="No scripts saved yet"
+                description="Generate and save scripts to see them here"
+              />
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };

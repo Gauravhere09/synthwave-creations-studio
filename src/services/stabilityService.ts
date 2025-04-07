@@ -8,6 +8,7 @@ export interface ImageGenerationParams {
   steps?: number; // 10-50
   seed?: number;
   style?: string;
+  [key: string]: string | number | undefined; // Add index signature to make it compatible with Json
 }
 
 export interface GeneratedImage {

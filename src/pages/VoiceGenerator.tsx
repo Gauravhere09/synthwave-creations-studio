@@ -1,118 +1,91 @@
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Slider } from '../components/ui/slider';
 import { Input } from '../components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import PageTitle from '../components/PageTitle';
+import { supabase } from '../integrations/supabase/client';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
-import { supabase } from '../integrations/supabase/client';
-import { Trash, Play, Pause, Download, Clock, Volume2 } from 'lucide-react';
-import { SavedAudio } from '../types/supabase';
+import PageTitle from '../components/PageTitle';
+import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
+import { synthesizeSpeech, getVoices, Voice } from '../services/elevenlabsService';
 
-// Import the ElevenLabs service
-import { getVoices, synthesizeSpeech, Voice, ELEVEN_LABS_VOICES } from '../services/elevenlabsService';
+interface SavedAudio {
+  id: string;
+  title: string;
+  text: string;
+  url: string;
+  voice_id?: string;
+  user_id?: string;
+  created_at: string;
+}
 
 const VoiceGenerator = () => {
-  const [elevenLabsKey] = useLocalStorage<string>('eleven-labs-key', '');
-  
-  // Form state
-  const [text, setText] = useState<string>('');
+  const [elevenLabsKey] = useLocalStorage<string>('elevenlabs-key', '');
   const [title, setTitle] = useState<string>('');
+  const [text, setText] = useState<string>('');
   const [voiceId, setVoiceId] = useState<string>('');
+  const [audioUrl, setAudioUrl] = useState<string>('');
   const [voices, setVoices] = useState<Voice[]>([]);
-  const [stability, setStability] = useState<number>(0.5);
-  const [clarity, setClarity] = useState<number>(0.5);
-  
-  // UI state
-  const [loading, setLoading] = useState<boolean>(false);
+  const [savedAudioFiles, setSavedAudioFiles] = useState<SavedAudio[]>([]);
   const [loadingVoices, setLoadingVoices] = useState<boolean>(false);
-  const [loadingAudioList, setLoadingAudioList] = useState<boolean>(false);
-  const [currentAudio, setCurrentAudio] = useState<SavedAudio | null>(null);
-  const [savedAudios, setSavedAudios] = useState<SavedAudio[]>([]);
-  const [audioPlayer] = useState(new Audio());
-  const [isPlaying, setIsPlaying] = useState<string | null>(null);
-  
-  // Fetch voices and saved audios on component mount
+  const [loadingAudio, setLoadingAudio] = useState<boolean>(false);
+  const [loadingSavedAudio, setLoadingSavedAudio] = useState<boolean>(false);
+  const [viewAudioId, setViewAudioId] = useState<string | null>(null);
+
   useEffect(() => {
     if (elevenLabsKey) {
       fetchVoices();
-    } else {
-      setVoices(ELEVEN_LABS_VOICES);
-      if (ELEVEN_LABS_VOICES.length > 0) {
-        setVoiceId(ELEVEN_LABS_VOICES[0].voice_id);
-      }
     }
-    fetchSavedAudios();
-    
-    return () => {
-      audioPlayer.pause();
-    };
+    fetchAudioFiles();
   }, [elevenLabsKey]);
-  
-  // Listen to audio player events
-  useEffect(() => {
-    const handleEnded = () => {
-      setIsPlaying(null);
-    };
-    
-    audioPlayer.addEventListener('ended', handleEnded);
-    
-    return () => {
-      audioPlayer.removeEventListener('ended', handleEnded);
-    };
-  }, [audioPlayer]);
 
   const fetchVoices = async () => {
     setLoadingVoices(true);
     try {
       const fetchedVoices = await getVoices(elevenLabsKey);
       setVoices(fetchedVoices);
-      // Set a default voice if available
-      if (fetchedVoices.length > 0 && !voiceId) {
+      if (fetchedVoices.length > 0) {
         setVoiceId(fetchedVoices[0].voice_id);
       }
     } catch (error) {
       console.error('Error fetching voices:', error);
-      toast.error('Failed to fetch voices');
+      toast.error('Failed to fetch voices. Please check your API key.');
     } finally {
       setLoadingVoices(false);
     }
   };
-  
-  const fetchSavedAudios = async () => {
-    setLoadingAudioList(true);
+
+  const fetchAudioFiles = async () => {
+    setLoadingSavedAudio(true);
     try {
       const { data, error } = await supabase
         .from('audio')
         .select('*')
         .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      
-      setSavedAudios(data || []);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        setSavedAudioFiles(data as SavedAudio[]);
+      }
     } catch (error) {
-      console.error('Error fetching audio:', error);
+      console.error('Error fetching audio files:', error);
       toast.error('Failed to load saved audio files');
     } finally {
-      setLoadingAudioList(false);
+      setLoadingSavedAudio(false);
     }
   };
 
-  const handleGenerate = async () => {
+  const generateAudio = async () => {
     if (!text.trim()) {
-      toast.error('Please enter some text');
-      return;
-    }
-    
-    if (!title.trim()) {
-      toast.error('Please enter a title');
+      toast.error('Please enter text to synthesize');
       return;
     }
 
@@ -126,328 +99,283 @@ const VoiceGenerator = () => {
       return;
     }
 
-    setLoading(true);
+    setLoadingAudio(true);
     try {
-      const audioUrl = await synthesizeSpeech(
-        elevenLabsKey,
-        voiceId,
-        text,
-        stability,
-        clarity
-      );
-      
-      // Save to Supabase
-      const { data, error } = await supabase
-        .from('audio')
-        .insert([{
-          title,
-          text,
-          url: audioUrl,
-          voice_id: voiceId
-        }])
-        .select();
-      
-      if (error) throw error;
-      
-      if (data && data.length > 0) {
-        setCurrentAudio(data[0]);
-        toast.success('Audio generated successfully');
-        fetchSavedAudios();
-      }
+      const { audioUrl } = await synthesizeSpeech(elevenLabsKey, text, voiceId);
+      setAudioUrl(audioUrl);
+      toast.success('Audio generated successfully!');
     } catch (error) {
-      console.error('Error generating audio:', error);
+      console.error('Error synthesizing speech:', error);
       toast.error('Failed to generate audio');
     } finally {
-      setLoading(false);
+      setLoadingAudio(false);
     }
   };
 
-  const handlePlayPause = (audio: SavedAudio) => {
-    if (isPlaying === audio.id) {
-      audioPlayer.pause();
-      setIsPlaying(null);
-    } else {
-      if (isPlaying) {
-        audioPlayer.pause();
+  const saveAudio = async (audioData: { 
+    title: string;
+    text: string; 
+    url: string;
+    voice_id: string;
+  }) => {
+    try {
+      const { error } = await supabase
+        .from('audio')
+        .insert({
+          title: audioData.title,
+          text: audioData.text,
+          url: audioData.url,
+          voice_id: audioData.voice_id
+        });
+      
+      if (error) {
+        throw error;
       }
-      audioPlayer.src = audio.url;
-      audioPlayer.play().catch(error => {
-        console.error('Error playing audio:', error);
-        toast.error('Failed to play audio');
-      });
-      setIsPlaying(audio.id);
+      
+      fetchAudioFiles();
+      toast.success('Audio saved successfully!');
+    } catch (error) {
+      console.error('Error saving audio:', error);
+      toast.error('Failed to save audio');
     }
   };
 
-  const handleDownload = (audio: SavedAudio) => {
-    const a = document.createElement('a');
-    a.href = audio.url;
-    a.download = `${audio.title.replace(/\s+/g, '-')}.mp3`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDeleteAudio = async (id: string) => {
     try {
       const { error } = await supabase
         .from('audio')
         .delete()
         .eq('id', id);
-      
-      if (error) throw error;
-      
-      setSavedAudios(savedAudios.filter(audio => audio.id !== id));
-      
-      if (currentAudio?.id === id) {
-        setCurrentAudio(null);
+
+      if (error) {
+        throw error;
       }
-      
-      if (isPlaying === id) {
-        audioPlayer.pause();
-        setIsPlaying(null);
+
+      setSavedAudioFiles(savedAudioFiles.filter(audio => audio.id !== id));
+      if (viewAudioId === id) {
+        setViewAudioId(null);
       }
-      
-      toast.success('Audio deleted successfully');
+      toast.success('Audio deleted');
     } catch (error) {
       console.error('Error deleting audio:', error);
       toast.error('Failed to delete audio');
     }
   };
 
-  // Selected voice details
-  const selectedVoice = voices.find(voice => voice.voice_id === voiceId);
+  const downloadAudio = (url: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  const viewAudio = (id: string) => {
+    setViewAudioId(id);
+  };
+
+  const viewedAudio = viewAudioId ? savedAudioFiles.find(audio => audio.id === viewAudioId) : null;
 
   return (
-    <div className="transition-all hover:scale-[1.01]">
-      <PageTitle 
-        title="Voice Generator" 
-        description="Transform text to speech using ElevenLabs AI" 
+    <div>
+      <PageTitle
+        title="Voice Generator"
+        description="Generate realistic voices using ElevenLabs"
       />
 
-      <Tabs defaultValue="generate">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate" className="transition-colors hover:bg-primary/20">Generate</TabsTrigger>
-          <TabsTrigger value="saved" className="transition-colors hover:bg-primary/20">Community Audio</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="generate" className="space-y-4 mt-4">
-          <Card className="transition-shadow hover:shadow-lg">
-            <CardHeader>
-              <CardTitle>Voice Settings</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input
-                    id="title"
-                    placeholder="Enter a title for your audio"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="transition-colors hover:border-primary"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="text">Text</Label>
-                  <Textarea 
-                    id="text"
-                    placeholder="Enter the text you want to convert to speech"
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    className="min-h-32 transition-colors hover:border-primary"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="voice">Voice</Label>
-                  {loadingVoices ? (
-                    <div className="flex justify-center p-2">
-                      <LoadingSpinner size="sm" />
-                    </div>
-                  ) : (
-                    <Select 
-                      value={voiceId} 
-                      onValueChange={setVoiceId}
-                      disabled={voices.length === 0}
-                    >
-                      <SelectTrigger className="transition-colors hover:border-primary">
-                        <SelectValue placeholder="Select a voice" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {voices.map((voice) => (
-                          <SelectItem 
-                            key={voice.voice_id} 
-                            value={voice.voice_id}
-                            className="transition-colors hover:bg-primary/20"
-                          >
-                            {voice.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  
-                  {!elevenLabsKey && (
-                    <p className="text-sm text-destructive">
-                      Please add your ElevenLabs API key in settings
-                    </p>
-                  )}
-                </div>
-                
-                {selectedVoice && (
-                  <div className="rounded-md bg-muted p-3">
-                    <h4 className="text-sm font-medium mb-2">Selected Voice: {selectedVoice.name}</h4>
-                    <div className="space-y-3">
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <Label htmlFor="stability" className="text-xs">Stability: {stability}</Label>
-                        </div>
-                        <Slider 
-                          id="stability"
-                          min={0} 
-                          max={1} 
-                          step={0.01}
-                          value={[stability]}
-                          onValueChange={(value) => setStability(value[0])}
-                          className="transition-colors hover:bg-primary/20"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Dynamic</span>
-                          <span>Stable</span>
-                        </div>
-                      </div>
-                      
-                      <div>
-                        <div className="flex justify-between mb-1">
-                          <Label htmlFor="clarity" className="text-xs">Clarity: {clarity}</Label>
-                        </div>
-                        <Slider 
-                          id="clarity"
-                          min={0} 
-                          max={1} 
-                          step={0.01}
-                          value={[clarity]}
-                          onValueChange={(value) => setClarity(value[0])}
-                          className="transition-colors hover:bg-primary/20"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Natural</span>
-                          <span>Clear</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <Button 
-                  onClick={handleGenerate}
-                  disabled={loading || !text.trim() || !voiceId || !elevenLabsKey || !title.trim()}
-                  className="w-full transition-colors hover:bg-primary/80"
-                >
-                  {loading ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      <span className="ml-2">Generating...</span>
-                    </>
-                  ) : (
-                    'Generate Audio'
-                  )}
-                </Button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="transition-shadow hover:shadow-lg">
+          <CardHeader>
+            <CardTitle>Audio Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="title">Title</Label>
+                <Input
+                  id="title"
+                  placeholder="Enter a title for your audio"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="transition-colors hover:border-primary"
+                />
               </div>
-            </CardContent>
-          </Card>
-          
-          {currentAudio && (
-            <Card className="transition-shadow hover:shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>{currentAudio.title}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground">{currentAudio.text}</p>
-                <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handlePlayPause(currentAudio)}
-                    className="transition-colors hover:bg-primary/20"
-                  >
-                    {isPlaying === currentAudio.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+
+              <div className="space-y-2">
+                <Label htmlFor="text">Text</Label>
+                <Textarea
+                  id="text"
+                  placeholder="Enter the text you want to convert to speech"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  className="transition-colors hover:border-primary"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="voice">Voice</Label>
+                <Select value={voiceId} onValueChange={setVoiceId} disabled={loadingVoices}>
+                  <SelectTrigger className="transition-colors hover:border-primary">
+                    <SelectValue placeholder="Select a voice" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {voices.map((voice) => (
+                      <SelectItem key={voice.voice_id} value={voice.voice_id} className="transition-colors hover:bg-primary/20">
+                        {voice.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {loadingVoices && <LoadingSpinner size="sm" />}
+              </div>
+
+              <Button
+                onClick={generateAudio}
+                disabled={loadingAudio || !text.trim() || !elevenLabsKey || !voiceId}
+                className="w-full transition-colors hover:bg-primary/80"
+              >
+                {loadingAudio ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span className="ml-2">Generating...</span>
+                  </>
+                ) : (
+                  'Generate Audio'
+                )}
+              </Button>
+
+              {!elevenLabsKey && (
+                <p className="text-sm text-destructive">
+                  Please add your ElevenLabs API key in settings
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="transition-shadow hover:shadow-lg">
+          <CardHeader>
+            <CardTitle>Audio Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {audioUrl ? (
+              <audio controls className="w-full">
+                <source src={audioUrl} type="audio/mpeg" />
+                Your browser does not support the audio element.
+              </audio>
+            ) : (
+              <div className="text-muted-foreground text-sm p-8 flex items-center justify-center">
+                Generate audio to see preview
+              </div>
+            )}
+          </CardContent>
+          {audioUrl && (
+            <CardFooter className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => saveAudio({ title, text, url: audioUrl, voice_id: voiceId })}
+                className="transition-colors hover:bg-primary/20"
+              >
+                Save Audio
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => downloadAudio(audioUrl, `${title || 'audio'}.mp3`)}
+                className="transition-colors hover:bg-primary/20"
+              >
+                <Download className="w-4 h-4 mr-1" />
+                Download
+              </Button>
+            </CardFooter>
+          )}
+        </Card>
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-2xl font-semibold mb-4">Saved Audio Files</h2>
+        {loadingSavedAudio ? (
+          <div className="flex justify-center p-12">
+            <LoadingSpinner size="lg" />
+          </div>
+        ) : savedAudioFiles.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+            {savedAudioFiles.map((audio) => (
+              <Card key={audio.id} className="relative group transition-transform hover:scale-105 rounded-xl overflow-hidden">
+                <CardHeader>
+                  <CardTitle>{audio.title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <audio controls className="w-full">
+                    <source src={audio.url} type="audio/mpeg" />
+                    Your browser does not support the audio element.
+                  </audio>
+                </CardContent>
+                <CardFooter className="flex justify-between items-center">
+                  <Button size="sm" variant="secondary" onClick={() => viewAudio(audio.id)} className="transition-colors hover:bg-primary/20">
+                    <Maximize className="w-4 h-4 mr-1" />
+                    View
                   </Button>
-                  <span className="text-sm font-medium">Preview Audio</span>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => handleDownload(currentAudio)}
-                    className="transition-colors hover:bg-primary/20"
-                  >
-                    <Download className="h-4 w-4" />
+                  <div className="flex gap-2">
+                    <Button size="icon" variant="secondary" onClick={() => downloadAudio(audio.url, `${audio.title}.mp3`)} className="transition-colors hover:bg-primary/20">
+                      <Download className="w-4 h-4" />
+                    </Button>
+                    <Button size="icon" variant="destructive" onClick={() => handleDeleteAudio(audio.id)} className="transition-colors hover:bg-destructive/80">
+                      <Trash className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </CardFooter>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="No saved audio files yet"
+            description="Generate and save audio files to populate your collection"
+          />
+        )}
+      </div>
+
+      {/* Full screen audio view dialog */}
+      <Dialog open={!!viewAudioId} onOpenChange={(open) => !open && setViewAudioId(null)}>
+        <DialogContent className="max-w-3xl w-full m-6 p-0 rounded-xl overflow-hidden bg-card/95 backdrop-blur-sm">
+          {viewedAudio && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-2 right-2 z-10 bg-black/40 hover:bg-black/60 text-white rounded-full"
+                onClick={() => setViewAudioId(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+
+              <div className="p-6">
+                <h3 className="text-lg font-semibold mb-2">{viewedAudio.title}</h3>
+                <p className="text-sm text-muted-foreground mb-4">{viewedAudio.text}</p>
+
+                <audio controls className="w-full">
+                  <source src={viewedAudio.url} type="audio/mpeg" />
+                  Your browser does not support the audio element.
+                </audio>
+
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button onClick={() => downloadAudio(viewedAudio.url, `${viewedAudio.title}.mp3`)} className="transition-colors hover:bg-primary/80">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button variant="destructive" onClick={() => handleDeleteAudio(viewedAudio.id)} className="transition-colors hover:bg-destructive/80">
+                    <Trash className="w-4 h-4 mr-2" />
+                    Delete
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-        
-        <TabsContent value="saved" className="mt-4">
-          {loadingAudioList ? (
-            <div className="flex justify-center p-12">
-              <LoadingSpinner size="lg" />
+              </div>
             </div>
-          ) : savedAudios.length > 0 ? (
-            <div className="space-y-3">
-              {savedAudios.map((audio) => (
-                <Card key={audio.id} className="transition-shadow hover:shadow-lg">
-                  <div className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">{audio.title}</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-1">{audio.text}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handlePlayPause(audio)}
-                          className="transition-colors hover:bg-primary/20"
-                        >
-                          {isPlaying === audio.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleDownload(audio)}
-                          className="transition-colors hover:bg-primary/20"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleDelete(audio.id)}
-                          className="text-destructive transition-colors hover:bg-destructive/20 hover:text-destructive"
-                        >
-                          <Trash className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />
-                      <span>{new Date(audio.created_at).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              title="No saved audio files"
-              description="Generate audio to see it here"
-            />
           )}
-        </TabsContent>
-      </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

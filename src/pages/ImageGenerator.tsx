@@ -8,14 +8,14 @@ import { Label } from '../components/ui/label';
 import { Slider } from '../components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { generateImage, ImageGenerationParams, GeneratedImage as StabilityGeneratedImage } from '../services/stabilityService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
 import { Input } from '../components/ui/input';
-import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
+import { Download, Trash, X, Maximize, Share, Edit, Instagram, Twitter } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
 import { SavedImage } from '../types/supabase';
 
@@ -128,26 +128,29 @@ const ImageGenerator = () => {
         
         setCurrentImage(imageForComponent);
         
-        // Save to Supabase
-        const { data, error } = await supabase
-          .from('images')
-          .insert([
-            {
+        // Save to Supabase - fixed insertion format
+        try {
+          const { data, error } = await supabase
+            .from('images')
+            .insert({
               prompt: generatedImage.prompt,
               url: generatedImage.url,
               base64_image: generatedImage.base64Image,
-              params: generatedImage.params,
-            }
-          ])
-          .select();
-          
-        if (error) {
-          console.error('Error saving image to Supabase:', error);
-        } else {
-          fetchImages(); // Refresh images
+              params: generatedImage.params as any // Type cast to any to avoid JSON compatibility issues
+            })
+            .select();
+            
+          if (error) {
+            console.error('Error saving image to Supabase:', error);
+            toast.error('Failed to save image to database');
+          } else {
+            fetchImages(); // Refresh images
+            toast.success('Image generated and saved successfully');
+          }
+        } catch (insertError) {
+          console.error('Exception saving image:', insertError);
+          toast.error('Failed to save image to database');
         }
-        
-        toast.success('Image generated successfully');
       }
     } catch (error) {
       console.error('Error generating image:', error);

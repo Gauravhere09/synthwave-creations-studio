@@ -13,7 +13,7 @@ export interface SavedImage {
   prompt: string;
   url: string;
   base64_image: string;
-  params: any;
+  params: any; // Using any instead of strict typing to match Json requirement
   user_id?: string;
   created_at: string;
 }
