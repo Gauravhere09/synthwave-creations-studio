@@ -27,29 +27,11 @@ export async function generateScript(prompt: string, apiKey: string): Promise<Sc
           }
         ],
         generationConfig: {
-          temperature: 0.9, // Increased from 0.7 to be more creative
+          temperature: 0.7,
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 8192,
         },
-        safetySettings: [
-          {
-            category: "HARM_CATEGORY_HATE_SPEECH",
-            threshold: "BLOCK_ONLY_HIGH"
-          },
-          {
-            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-            threshold: "BLOCK_ONLY_HIGH"
-          },
-          {
-            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            threshold: "BLOCK_ONLY_HIGH"
-          },
-          {
-            category: "HARM_CATEGORY_HARASSMENT",
-            threshold: "BLOCK_ONLY_HIGH"
-          }
-        ]
       })
     });
     
@@ -60,17 +42,8 @@ export async function generateScript(prompt: string, apiKey: string): Promise<Sc
     
     const data = await response.json();
     
-    // Debug the response structure
-    console.log('Gemini response structure:', JSON.stringify(data, null, 2));
-    
     if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
       const content = data.candidates[0].content.parts[0].text;
-      
-      // Check if content is just returning the prompt
-      if (content.includes(enhancedPrompt) || content === prompt) {
-        throw new Error('Model returned the prompt without proper generation');
-      }
-      
       return { content };
     } else {
       throw new Error('No content generated');

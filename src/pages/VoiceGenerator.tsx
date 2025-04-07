@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
@@ -14,11 +13,11 @@ import EmptyState from '../components/EmptyState';
 import PageTitle from '../components/PageTitle';
 import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
 import { synthesizeSpeech, getVoices, Voice } from '../services/elevenlabsService';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../components/ui/dialog';
+import { Dialog, DialogContent } from '../components/ui/dialog';
 import { SavedAudio } from '../types/supabase';
 
 const VoiceGenerator = () => {
-  const [elevenLabsKey, setElevenLabsKey] = useLocalStorage<string>('eleven-labs-key', '');
+  const [elevenLabsKey] = useLocalStorage<string>('elevenlabs-key', '');
   const [title, setTitle] = useState<string>('');
   const [text, setText] = useState<string>('');
   const [voiceId, setVoiceId] = useState<string>('');
@@ -30,9 +29,7 @@ const VoiceGenerator = () => {
   const [loadingSavedAudio, setLoadingSavedAudio] = useState<boolean>(false);
   const [viewAudioId, setViewAudioId] = useState<string | null>(null);
 
-  // Check for API key on load and also any time it changes
   useEffect(() => {
-    console.log("ElevenLabs key from storage:", elevenLabsKey ? "exists" : "not found");
     if (elevenLabsKey) {
       fetchVoices();
     }
@@ -40,16 +37,9 @@ const VoiceGenerator = () => {
   }, [elevenLabsKey]);
 
   const fetchVoices = async () => {
-    if (!elevenLabsKey) {
-      console.log("No API key available for fetching voices");
-      return;
-    }
-    
     setLoadingVoices(true);
     try {
-      console.log("Fetching voices...");
       const fetchedVoices = await getVoices(elevenLabsKey);
-      console.log("Fetched voices:", fetchedVoices);
       setVoices(fetchedVoices);
       if (fetchedVoices.length > 0) {
         setVoiceId(fetchedVoices[0].voice_id);
@@ -217,11 +207,11 @@ const VoiceGenerator = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="voice">Voice</Label>
-                <Select value={voiceId} onValueChange={setVoiceId} disabled={loadingVoices || voices.length === 0}>
+                <Select value={voiceId} onValueChange={setVoiceId} disabled={loadingVoices}>
                   <SelectTrigger className="transition-colors hover:border-primary">
-                    <SelectValue placeholder={voices.length > 0 ? "Select a voice" : "No voices available"} />
+                    <SelectValue placeholder="Select a voice" />
                   </SelectTrigger>
-                  <SelectContent className="bg-background border border-border z-50">
+                  <SelectContent>
                     {voices.map((voice) => (
                       <SelectItem key={voice.voice_id} value={voice.voice_id} className="transition-colors hover:bg-primary/20">
                         {voice.name}
@@ -231,22 +221,6 @@ const VoiceGenerator = () => {
                 </Select>
                 {loadingVoices && <LoadingSpinner size="sm" />}
               </div>
-
-              <Button
-                onClick={fetchVoices}
-                variant="outline"
-                disabled={!elevenLabsKey}
-                className="w-full transition-colors hover:bg-primary/20"
-              >
-                {loadingVoices ? (
-                  <>
-                    <LoadingSpinner size="sm" />
-                    <span className="ml-2">Loading voices...</span>
-                  </>
-                ) : (
-                  'Refresh Voices'
-                )}
-              </Button>
 
               <Button
                 onClick={generateAudio}
@@ -264,9 +238,9 @@ const VoiceGenerator = () => {
               </Button>
 
               {!elevenLabsKey && (
-                <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
-                  Please add your ElevenLabs API key in settings. Check that you've saved after entering the key.
-                </div>
+                <p className="text-sm text-destructive">
+                  Please add your ElevenLabs API key in settings
+                </p>
               )}
             </div>
           </CardContent>
@@ -356,14 +330,11 @@ const VoiceGenerator = () => {
         )}
       </div>
 
-      {/* Full screen audio view dialog - updated with proper padding */}
+      {/* Full screen audio view dialog */}
       <Dialog open={!!viewAudioId} onOpenChange={(open) => !open && setViewAudioId(null)}>
-        <DialogContent className="max-w-3xl w-full m-6 p-6 rounded-xl overflow-hidden bg-card/95 backdrop-blur-sm">
-          <DialogTitle>Audio Details</DialogTitle>
-          <DialogDescription>View and manage your saved audio</DialogDescription>
-          
+        <DialogContent className="max-w-3xl w-full m-6 p-0 rounded-xl overflow-hidden bg-card/95 backdrop-blur-sm">
           {viewedAudio && (
-            <div className="relative mt-4">
+            <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
@@ -373,20 +344,16 @@ const VoiceGenerator = () => {
                 <X className="h-4 w-4" />
               </Button>
 
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">{viewedAudio.title}</h3>
-                <div className="bg-muted/30 p-4 rounded-md max-h-48 overflow-y-auto">
-                  <p className="text-sm text-muted-foreground">{viewedAudio.text}</p>
-                </div>
+              <div className="p-6">
+                <h3 className="text-lg font-semibold mb-2">{viewedAudio.title}</h3>
+                <p className="text-sm text-muted-foreground mb-4">{viewedAudio.text}</p>
 
-                <div className="py-2">
-                  <audio controls className="w-full">
-                    <source src={viewedAudio.url} type="audio/mpeg" />
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
+                <audio controls className="w-full">
+                  <source src={viewedAudio.url} type="audio/mpeg" />
+                  Your browser does not support the audio element.
+                </audio>
 
-                <div className="flex justify-end gap-2 mt-2">
+                <div className="flex justify-end gap-2 mt-4">
                   <Button onClick={() => downloadAudio(viewedAudio.url, `${viewedAudio.title}.mp3`)} className="transition-colors hover:bg-primary/80">
                     <Download className="w-4 h-4 mr-2" />
                     Download
