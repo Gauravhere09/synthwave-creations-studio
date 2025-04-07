@@ -9,7 +9,93 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      audio: {
+        Row: {
+          created_at: string
+          id: string
+          text: string
+          title: string
+          url: string
+          user_id: string | null
+          voice_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          text: string
+          title: string
+          url: string
+          user_id?: string | null
+          voice_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          text?: string
+          title?: string
+          url?: string
+          user_id?: string | null
+          voice_id?: string | null
+        }
+        Relationships: []
+      }
+      images: {
+        Row: {
+          base64_image: string
+          created_at: string
+          id: string
+          params: Json | null
+          prompt: string
+          url: string
+          user_id: string | null
+        }
+        Insert: {
+          base64_image: string
+          created_at?: string
+          id?: string
+          params?: Json | null
+          prompt: string
+          url: string
+          user_id?: string | null
+        }
+        Update: {
+          base64_image?: string
+          created_at?: string
+          id?: string
+          params?: Json | null
+          prompt?: string
+          url?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      scripts: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          prompt: string
+          title: string
+          user_id: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          prompt: string
+          title: string
+          user_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          prompt?: string
+          title?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,211 +1,258 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
-import { Slider } from '../components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Switch } from '../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Slider } from '../components/ui/slider';
+import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
-import {
-  generateSpeech,
-  Voice,
-  TTSOptions,
-  ELEVEN_LABS_VOICES,
-  ELEVEN_LABS_MODELS
-} from '../services/elevenlabsService';
-import {
-  generateTTSMakerSpeech,
-  TTSMakerOptions,
-  TTS_MAKER_VOICES
-} from '../services/ttsMakerService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
-import { Play, Pause, Download, Trash, Volume2, VolumeX } from 'lucide-react';
+import { supabase } from '../integrations/supabase/client';
+import { Trash, Play, Pause, Download, Clock, Volume2 } from 'lucide-react';
+
+// Import only the ElevenLabs service since we're removing TTS Maker
+import { synthesizeSpeech, Voice, getVoices } from '../services/elevenlabsService';
 
 interface SavedAudio {
   id: string;
+  title: string;
   text: string;
-  audioUrl: string;
-  provider: 'elevenlabs' | 'ttsmaker';
-  voiceName: string;
-  date: number;
+  url: string;
+  voice_id: string;
+  created_at: string | number;
 }
 
 const VoiceGenerator = () => {
   const [elevenLabsKey] = useLocalStorage<string>('eleven-labs-key', '');
-  const [ttsMakerKey] = useLocalStorage<string>('tts-maker-key', '');
-  const [savedAudios, setSavedAudios] = useLocalStorage<SavedAudio[]>('saved-audios', []);
   
   // Form state
   const [text, setText] = useState<string>('');
-  const [provider, setProvider] = useState<'elevenlabs' | 'ttsmaker'>('elevenlabs');
-  
-  // ElevenLabs settings
-  const [elevenLabsVoice, setElevenLabsVoice] = useState<string>(ELEVEN_LABS_VOICES[0].id);
-  const [elevenLabsModel, setElevenLabsModel] = useState<string>(ELEVEN_LABS_MODELS[0].id);
+  const [title, setTitle] = useState<string>('');
+  const [voiceId, setVoiceId] = useState<string>('');
+  const [voices, setVoices] = useState<Voice[]>([]);
   const [stability, setStability] = useState<number>(0.5);
-  const [similarityBoost, setSimilarityBoost] = useState<number>(0.75);
-  
-  // TTSMaker settings
-  const [ttsMakerVoice, setTtsMakerVoice] = useState<string>(TTS_MAKER_VOICES[0].id);
-  const [speed, setSpeed] = useState<number>(5);
-  const [pitch, setPitch] = useState<number>(5);
-  const [volume, setVolume] = useState<number>(5);
+  const [clarity, setClarity] = useState<number>(0.5);
   
   // UI state
   const [loading, setLoading] = useState<boolean>(false);
-  const [currentAudioUrl, setCurrentAudioUrl] = useState<string | null>(null);
+  const [loadingVoices, setLoadingVoices] = useState<boolean>(false);
+  const [loadingAudioList, setLoadingAudioList] = useState<boolean>(false);
+  const [currentAudio, setCurrentAudio] = useState<SavedAudio | null>(null);
+  const [savedAudios, setSavedAudios] = useState<SavedAudio[]>([]);
+  const [audioPlayer] = useState(new Audio());
+  const [isPlaying, setIsPlaying] = useState<string | null>(null);
   
-  // Audio playback
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [currentlyPlayingId, setCurrentlyPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  
+  // Fetch voices and saved audios on component mount
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.onended = () => {
-        setIsPlaying(false);
-        setCurrentlyPlayingId(null);
-      };
+    if (elevenLabsKey) {
+      fetchVoices();
     }
-  }, []);
+    fetchSavedAudios();
+    
+    return () => {
+      audioPlayer.pause();
+    };
+  }, [elevenLabsKey]);
   
+  // Listen to audio player events
+  useEffect(() => {
+    const handleEnded = () => {
+      setIsPlaying(null);
+    };
+    
+    audioPlayer.addEventListener('ended', handleEnded);
+    
+    return () => {
+      audioPlayer.removeEventListener('ended', handleEnded);
+    };
+  }, [audioPlayer]);
+
+  const fetchVoices = async () => {
+    setLoadingVoices(true);
+    try {
+      const fetchedVoices = await getVoices(elevenLabsKey);
+      setVoices(fetchedVoices);
+      // Set a default voice if available
+      if (fetchedVoices.length > 0 && !voiceId) {
+        setVoiceId(fetchedVoices[0].voice_id);
+      }
+    } catch (error) {
+      console.error('Error fetching voices:', error);
+      toast.error('Failed to fetch voices');
+    } finally {
+      setLoadingVoices(false);
+    }
+  };
+  
+  const fetchSavedAudios = async () => {
+    setLoadingAudioList(true);
+    try {
+      const { data, error } = await supabase
+        .from('audio')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      setSavedAudios(data || []);
+    } catch (error) {
+      console.error('Error fetching audio:', error);
+      toast.error('Failed to load saved audio files');
+    } finally {
+      setLoadingAudioList(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!text.trim()) {
       toast.error('Please enter some text');
       return;
     }
+    
+    if (!title.trim()) {
+      toast.error('Please enter a title');
+      return;
+    }
 
-    if ((provider === 'elevenlabs' && !elevenLabsKey) || 
-        (provider === 'ttsmaker' && !ttsMakerKey)) {
-      toast.error(`Please set your ${provider === 'elevenlabs' ? 'ElevenLabs' : 'TTS Maker'} API key in settings`);
+    if (!elevenLabsKey) {
+      toast.error('Please set your ElevenLabs API key in settings');
+      return;
+    }
+
+    if (!voiceId) {
+      toast.error('Please select a voice');
       return;
     }
 
     setLoading(true);
     try {
-      let result;
-      let voiceName;
+      const audioUrl = await synthesizeSpeech(
+        elevenLabsKey,
+        voiceId,
+        text,
+        stability,
+        clarity
+      );
       
-      if (provider === 'elevenlabs') {
-        const options: TTSOptions = {
-          voiceId: elevenLabsVoice,
+      // Save to Supabase
+      const { data, error } = await supabase
+        .from('audio')
+        .insert([{
+          title,
           text,
-          model: elevenLabsModel,
-          stability,
-          similarityBoost
-        };
-        
-        result = await generateSpeech(options, elevenLabsKey);
-        voiceName = ELEVEN_LABS_VOICES.find(v => v.id === elevenLabsVoice)?.name || 'Unknown';
-      } else {
-        const options: TTSMakerOptions = {
-          voiceId: ttsMakerVoice,
-          text,
-          speed,
-          pitch,
-          volume
-        };
-        
-        result = await generateTTSMakerSpeech(options, ttsMakerKey);
-        voiceName = TTS_MAKER_VOICES.find(v => v.id === ttsMakerVoice)?.name || 'Unknown';
-      }
+          url: audioUrl,
+          voice_id: voiceId
+        }])
+        .select();
       
-      if (result.error) {
-        toast.error(result.error);
-      } else if (result.audioUrl) {
-        setCurrentAudioUrl(result.audioUrl);
-        
-        // Save the audio
-        const savedAudio: SavedAudio = {
-          id: `audio_${Date.now()}`,
-          text,
-          audioUrl: result.audioUrl,
-          provider,
-          voiceName,
-          date: Date.now()
-        };
-        
-        setSavedAudios([savedAudio, ...savedAudios]);
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        setCurrentAudio(data[0]);
         toast.success('Audio generated successfully');
-        
-        // Play the audio
-        if (audioRef.current) {
-          audioRef.current.src = result.audioUrl;
-          audioRef.current.play().catch(console.error);
-          setIsPlaying(true);
-        }
+        fetchSavedAudios();
       }
     } catch (error) {
-      console.error('Error generating speech:', error);
-      toast.error('Failed to generate speech');
+      console.error('Error generating audio:', error);
+      toast.error('Failed to generate audio');
     } finally {
       setLoading(false);
     }
   };
 
-  const togglePlayAudio = (audioUrl: string, id: string | null = null) => {
-    if (audioRef.current) {
-      if (isPlaying && currentlyPlayingId === id) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-        setCurrentlyPlayingId(null);
-      } else {
-        audioRef.current.src = audioUrl;
-        audioRef.current.play().catch(console.error);
-        setIsPlaying(true);
-        setCurrentlyPlayingId(id);
+  const handlePlayPause = (audio: SavedAudio) => {
+    if (isPlaying === audio.id) {
+      audioPlayer.pause();
+      setIsPlaying(null);
+    } else {
+      if (isPlaying) {
+        audioPlayer.pause();
       }
+      audioPlayer.src = audio.url;
+      audioPlayer.play().catch(error => {
+        console.error('Error playing audio:', error);
+        toast.error('Failed to play audio');
+      });
+      setIsPlaying(audio.id);
     }
-  };
-  
-  const handleDeleteAudio = (id: string) => {
-    // If currently playing, stop it
-    if (currentlyPlayingId === id && audioRef.current) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-      setCurrentlyPlayingId(null);
-    }
-    
-    // Filter out the deleted audio and update state
-    setSavedAudios(savedAudios.filter(audio => audio.id !== id));
-    toast.success('Audio deleted');
   };
 
-  const downloadAudio = (audio: SavedAudio) => {
+  const handleDownload = (audio: SavedAudio) => {
     const a = document.createElement('a');
-    a.href = audio.audioUrl;
-    a.download = `ai-voice-${audio.id}.mp3`;
+    a.href = audio.url;
+    a.download = `${audio.title.replace(/\s+/g, '-')}.mp3`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('audio')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      
+      setSavedAudios(savedAudios.filter(audio => audio.id !== id));
+      
+      if (currentAudio?.id === id) {
+        setCurrentAudio(null);
+      }
+      
+      if (isPlaying === id) {
+        audioPlayer.pause();
+        setIsPlaying(null);
+      }
+      
+      toast.success('Audio deleted successfully');
+    } catch (error) {
+      console.error('Error deleting audio:', error);
+      toast.error('Failed to delete audio');
+    }
+  };
+
+  // Selected voice details
+  const selectedVoice = voices.find(voice => voice.voice_id === voiceId);
+
   return (
-    <div>
+    <div className="transition-all hover:scale-[1.01]">
       <PageTitle 
         title="Voice Generator" 
-        description="Create speech using AI voices" 
+        description="Transform text to speech using ElevenLabs AI" 
       />
 
       <Tabs defaultValue="generate">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="library">Library</TabsTrigger>
+          <TabsTrigger value="generate" className="transition-colors hover:bg-primary/20">Generate</TabsTrigger>
+          <TabsTrigger value="saved" className="transition-colors hover:bg-primary/20">Community Audio</TabsTrigger>
         </TabsList>
         
         <TabsContent value="generate" className="space-y-4 mt-4">
-          <Card>
+          <Card className="transition-shadow hover:shadow-lg">
             <CardHeader>
-              <CardTitle>Voice Generator</CardTitle>
+              <CardTitle>Voice Settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="title">Title</Label>
+                  <Input
+                    id="title"
+                    placeholder="Enter a title for your audio"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    className="transition-colors hover:border-primary"
+                  />
+                </div>
+                
                 <div className="space-y-2">
                   <Label htmlFor="text">Text</Label>
                   <Textarea 
@@ -213,209 +260,95 @@ const VoiceGenerator = () => {
                     placeholder="Enter the text you want to convert to speech"
                     value={text}
                     onChange={(e) => setText(e.target.value)}
-                    className="min-h-32"
+                    className="min-h-32 transition-colors hover:border-primary"
                   />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="provider">Voice Provider</Label>
-                  <Select 
-                    value={provider}
-                    onValueChange={(value: 'elevenlabs' | 'ttsmaker') => setProvider(value)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
-                      <SelectItem value="ttsmaker">TTS Maker</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="voice">Voice</Label>
+                  {loadingVoices ? (
+                    <div className="flex justify-center p-2">
+                      <LoadingSpinner size="sm" />
+                    </div>
+                  ) : (
+                    <Select 
+                      value={voiceId} 
+                      onValueChange={setVoiceId}
+                      disabled={voices.length === 0}
+                    >
+                      <SelectTrigger className="transition-colors hover:border-primary">
+                        <SelectValue placeholder="Select a voice" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {voices.map((voice) => (
+                          <SelectItem 
+                            key={voice.voice_id} 
+                            value={voice.voice_id}
+                            className="transition-colors hover:bg-primary/20"
+                          >
+                            {voice.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  
+                  {!elevenLabsKey && (
+                    <p className="text-sm text-destructive">
+                      Please add your ElevenLabs API key in settings
+                    </p>
+                  )}
                 </div>
                 
-                {provider === 'elevenlabs' ? (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="elevenlabs-voice">Voice</Label>
-                      <Select 
-                        value={elevenLabsVoice}
-                        onValueChange={setElevenLabsVoice}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select voice" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ELEVEN_LABS_VOICES.map((voice) => (
-                            <SelectItem 
-                              key={voice.id} 
-                              value={voice.id}
-                            >
-                              {voice.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="elevenlabs-model">Model</Label>
-                      <Select 
-                        value={elevenLabsModel}
-                        onValueChange={setElevenLabsModel}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select model" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ELEVEN_LABS_MODELS.map((model) => (
-                            <SelectItem 
-                              key={model.id} 
-                              value={model.id}
-                            >
-                              {model.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label htmlFor="stability">Stability: {stability.toFixed(2)}</Label>
+                {selectedVoice && (
+                  <div className="rounded-md bg-muted p-3">
+                    <h4 className="text-sm font-medium mb-2">Selected Voice: {selectedVoice.name}</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <Label htmlFor="stability" className="text-xs">Stability: {stability}</Label>
+                        </div>
+                        <Slider 
+                          id="stability"
+                          min={0} 
+                          max={1} 
+                          step={0.01}
+                          value={[stability]}
+                          onValueChange={(value) => setStability(value[0])}
+                          className="transition-colors hover:bg-primary/20"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Dynamic</span>
+                          <span>Stable</span>
+                        </div>
                       </div>
-                      <Slider 
-                        id="stability"
-                        min={0} 
-                        max={1} 
-                        step={0.01}
-                        value={[stability]}
-                        onValueChange={(value) => setStability(value[0])}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Variable</span>
-                        <span>Stable</span>
+                      
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <Label htmlFor="clarity" className="text-xs">Clarity: {clarity}</Label>
+                        </div>
+                        <Slider 
+                          id="clarity"
+                          min={0} 
+                          max={1} 
+                          step={0.01}
+                          value={[clarity]}
+                          onValueChange={(value) => setClarity(value[0])}
+                          className="transition-colors hover:bg-primary/20"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Natural</span>
+                          <span>Clear</span>
+                        </div>
                       </div>
                     </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label htmlFor="similarity-boost">Similarity Boost: {similarityBoost.toFixed(2)}</Label>
-                      </div>
-                      <Slider 
-                        id="similarity-boost"
-                        min={0} 
-                        max={1} 
-                        step={0.01}
-                        value={[similarityBoost]}
-                        onValueChange={(value) => setSimilarityBoost(value[0])}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Creative</span>
-                        <span>Similar</span>
-                      </div>
-                    </div>
-                    
-                    {!elevenLabsKey && (
-                      <p className="text-sm text-destructive">
-                        Please add your ElevenLabs API key in settings
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="ttsmaker-voice">Voice</Label>
-                      <Select 
-                        value={ttsMakerVoice}
-                        onValueChange={setTtsMakerVoice}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select voice" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {TTS_MAKER_VOICES.map((voice) => (
-                            <SelectItem 
-                              key={voice.id} 
-                              value={voice.id}
-                            >
-                              {voice.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label htmlFor="speed">Speed: {speed}</Label>
-                      </div>
-                      <Slider 
-                        id="speed"
-                        min={0} 
-                        max={10} 
-                        step={1}
-                        value={[speed]}
-                        onValueChange={(value) => setSpeed(value[0])}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Slow</span>
-                        <span>Fast</span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label htmlFor="pitch">Pitch: {pitch}</Label>
-                      </div>
-                      <Slider 
-                        id="pitch"
-                        min={0} 
-                        max={10} 
-                        step={1}
-                        value={[pitch]}
-                        onValueChange={(value) => setPitch(value[0])}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Low</span>
-                        <span>High</span>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <Label htmlFor="volume">Volume: {volume}</Label>
-                      </div>
-                      <Slider 
-                        id="volume"
-                        min={0} 
-                        max={10} 
-                        step={1}
-                        value={[volume]}
-                        onValueChange={(value) => setVolume(value[0])}
-                      />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Quiet</span>
-                        <span>Loud</span>
-                      </div>
-                    </div>
-                    
-                    {!ttsMakerKey && (
-                      <p className="text-sm text-destructive">
-                        Please add your TTS Maker API key in settings
-                      </p>
-                    )}
                   </div>
                 )}
                 
                 <Button 
-                  onClick={handleGenerate} 
-                  disabled={
-                    loading || 
-                    !text.trim() || 
-                    (provider === 'elevenlabs' && !elevenLabsKey) ||
-                    (provider === 'ttsmaker' && !ttsMakerKey)
-                  }
-                  className="w-full"
+                  onClick={handleGenerate}
+                  disabled={loading || !text.trim() || !voiceId || !elevenLabsKey || !title.trim()}
+                  className="w-full transition-colors hover:bg-primary/80"
                 >
                   {loading ? (
                     <>
@@ -423,95 +356,98 @@ const VoiceGenerator = () => {
                       <span className="ml-2">Generating...</span>
                     </>
                   ) : (
-                    'Generate Voice'
+                    'Generate Audio'
                   )}
                 </Button>
-                
-                {currentAudioUrl && (
-                  <div className="p-4 bg-secondary rounded-lg flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => togglePlayAudio(currentAudioUrl)}
-                      >
-                        {isPlaying && !currentlyPlayingId ? (
-                          <Pause className="h-5 w-5" />
-                        ) : (
-                          <Play className="h-5 w-5" />
-                        )}
-                      </Button>
-                      <span className="text-sm">Preview</span>
-                    </div>
-                    <audio ref={audioRef} className="hidden" />
-                  </div>
-                )}
               </div>
             </CardContent>
           </Card>
+          
+          {currentAudio && (
+            <Card className="transition-shadow hover:shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>{currentAudio.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-sm text-muted-foreground">{currentAudio.text}</p>
+                <div className="flex items-center justify-between bg-muted/30 p-3 rounded-md">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handlePlayPause(currentAudio)}
+                    className="transition-colors hover:bg-primary/20"
+                  >
+                    {isPlaying === currentAudio.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                  </Button>
+                  <span className="text-sm font-medium">Preview Audio</span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => handleDownload(currentAudio)}
+                    className="transition-colors hover:bg-primary/20"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
         
-        <TabsContent value="library" className="mt-4">
-          {savedAudios.length > 0 ? (
-            <div className="space-y-4">
+        <TabsContent value="saved" className="mt-4">
+          {loadingAudioList ? (
+            <div className="flex justify-center p-12">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : savedAudios.length > 0 ? (
+            <div className="space-y-3">
               {savedAudios.map((audio) => (
-                <Card key={audio.id}>
-                  <CardHeader className="pb-2">
+                <Card key={audio.id} className="transition-shadow hover:shadow-lg">
+                  <div className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <CardTitle className="text-base">
-                            <span className="text-muted-foreground">{audio.provider === 'elevenlabs' ? 'ElevenLabs' : 'TTS Maker'}</span>
-                            &nbsp;•&nbsp;{audio.voiceName}
-                          </CardTitle>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {new Date(audio.date).toLocaleDateString()} {new Date(audio.date).toLocaleTimeString()}
-                        </p>
+                        <h3 className="font-medium">{audio.title}</h3>
+                        <p className="text-sm text-muted-foreground line-clamp-1">{audio.text}</p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button 
-                          variant="ghost" 
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
                           size="icon"
-                          onClick={() => togglePlayAudio(audio.audioUrl, audio.id)}
+                          onClick={() => handlePlayPause(audio)}
+                          className="transition-colors hover:bg-primary/20"
                         >
-                          {isPlaying && currentlyPlayingId === audio.id ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
+                          {isPlaying === audio.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="outline"
                           size="icon"
-                          onClick={() => downloadAudio(audio)}
+                          onClick={() => handleDownload(audio)}
+                          className="transition-colors hover:bg-primary/20"
                         >
                           <Download className="h-4 w-4" />
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="outline"
                           size="icon"
-                          onClick={() => handleDeleteAudio(audio.id)}
+                          onClick={() => handleDelete(audio.id)}
+                          className="text-destructive transition-colors hover:bg-destructive/20 hover:text-destructive"
                         >
                           <Trash className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm">
-                      {audio.text.length > 100 
-                        ? `${audio.text.substring(0, 100)}...` 
-                        : audio.text}
-                    </p>
-                  </CardContent>
+                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span>{new Date(audio.created_at).toLocaleString()}</span>
+                    </div>
+                  </div>
                 </Card>
               ))}
             </div>
           ) : (
-            <EmptyState 
-              title="No saved audios yet"
-              description="Generate speech to populate your library"
+            <EmptyState
+              title="No saved audio files"
+              description="Generate audio to see it here"
             />
           )}
         </TabsContent>

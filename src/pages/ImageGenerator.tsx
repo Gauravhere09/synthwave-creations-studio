@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -10,12 +10,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { generateImage, GeneratedImage, ImageGenerationParams } from '../services/stabilityService';
+import { generateImage, ImageGenerationParams } from '../services/stabilityService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
 import { Input } from '../components/ui/input';
 import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
+import { supabase } from '../integrations/supabase/client';
+
+interface GeneratedImage {
+  id: string;
+  url: string;
+  prompt: string;
+  timestamp?: number;
+  created_at?: string;
+  base64_image: string;
+  params: ImageGenerationParams;
+}
 
 const RESOLUTION_OPTIONS = [
   { label: '512 x 512', width: 512, height: 512 },
@@ -37,7 +48,6 @@ const STYLE_OPTIONS = [
 
 const ImageGenerator = () => {
   const [stabilityKey] = useLocalStorage<string>('stability-key', '');
-  const [savedImages, setSavedImages] = useLocalStorage<GeneratedImage[]>('saved-images', []);
   
   // Form state
   const [prompt, setPrompt] = useState<string>('');
@@ -49,9 +59,38 @@ const ImageGenerator = () => {
   
   // UI state
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingImages, setLoadingImages] = useState<boolean>(false);
   const [currentImage, setCurrentImage] = useState<GeneratedImage | null>(null);
+  const [savedImages, setSavedImages] = useState<GeneratedImage[]>([]);
   const [viewImageId, setViewImageId] = useState<string | null>(null);
   
+  useEffect(() => {
+    fetchImages();
+  }, []);
+
+  const fetchImages = async () => {
+    setLoadingImages(true);
+    try {
+      const { data, error } = await supabase
+        .from('images')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      
+      if (data) {
+        setSavedImages(data);
+      }
+    } catch (error) {
+      console.error('Error fetching images:', error);
+      toast.error('Failed to load saved images');
+    } finally {
+      setLoadingImages(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast.error('Please enter a prompt');
@@ -80,8 +119,28 @@ const ImageGenerator = () => {
       if (result.error) {
         toast.error(result.error);
       } else if (result.images && result.images.length > 0) {
-        setCurrentImage(result.images[0]);
-        setSavedImages([...result.images, ...savedImages]);
+        const generatedImage = result.images[0];
+        setCurrentImage(generatedImage);
+        
+        // Save to Supabase
+        const { data, error } = await supabase
+          .from('images')
+          .insert([
+            {
+              prompt: generatedImage.prompt,
+              url: generatedImage.url,
+              base64_image: generatedImage.base64Image,
+              params: generatedImage.params,
+            }
+          ])
+          .select();
+          
+        if (error) {
+          console.error('Error saving image to Supabase:', error);
+        } else {
+          fetchImages(); // Refresh images
+        }
+        
         toast.success('Image generated successfully');
       }
     } catch (error) {
@@ -92,15 +151,29 @@ const ImageGenerator = () => {
     }
   };
 
-  const handleDeleteImage = (id: string) => {
-    setSavedImages(savedImages.filter(img => img.id !== id));
-    if (currentImage?.id === id) {
-      setCurrentImage(null);
+  const handleDeleteImage = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('images')
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      setSavedImages(savedImages.filter(img => img.id !== id));
+      if (currentImage?.id === id) {
+        setCurrentImage(null);
+      }
+      if (viewImageId === id) {
+        setViewImageId(null);
+      }
+      toast.success('Image deleted');
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      toast.error('Failed to delete image');
     }
-    if (viewImageId === id) {
-      setViewImageId(null);
-    }
-    toast.success('Image deleted');
   };
 
   const downloadImage = (image: GeneratedImage) => {
@@ -119,21 +192,21 @@ const ImageGenerator = () => {
   const viewedImage = viewImageId ? savedImages.find(img => img.id === viewImageId) : null;
 
   return (
-    <div>
+    <div className="transition-all hover:scale-[1.01]">
       <PageTitle 
         title="Image Generator" 
-        description="Create images using DreamStudio AI" 
+        description="Create images using Stability AI" 
       />
 
       <Tabs defaultValue="generate">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="gallery">Gallery</TabsTrigger>
+          <TabsTrigger value="generate" className="transition-colors hover:bg-primary/20">Generate</TabsTrigger>
+          <TabsTrigger value="gallery" className="transition-colors hover:bg-primary/20">Community Gallery</TabsTrigger>
         </TabsList>
         
         <TabsContent value="generate" className="space-y-4 mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="order-2 md:order-1">
+            <Card className="order-2 md:order-1 transition-shadow hover:shadow-lg">
               <CardHeader>
                 <CardTitle>Image Settings</CardTitle>
               </CardHeader>
@@ -146,6 +219,7 @@ const ImageGenerator = () => {
                       placeholder="Enter your image description, e.g., 'A serene lake at sunset with mountains in the background'"
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
+                      className="transition-colors hover:border-primary"
                     />
                   </div>
                   
@@ -156,6 +230,7 @@ const ImageGenerator = () => {
                       placeholder="Things to avoid in the image, e.g., 'blurry, low quality'"
                       value={negativePrompt}
                       onChange={(e) => setNegativePrompt(e.target.value)}
+                      className="transition-colors hover:border-primary"
                     />
                   </div>
                   
@@ -168,7 +243,7 @@ const ImageGenerator = () => {
                         setResolution({ width, height });
                       }}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="transition-colors hover:border-primary">
                         <SelectValue placeholder="Select resolution" />
                       </SelectTrigger>
                       <SelectContent>
@@ -176,6 +251,7 @@ const ImageGenerator = () => {
                           <SelectItem 
                             key={option.label} 
                             value={`${option.width}x${option.height}`}
+                            className="transition-colors hover:bg-primary/20"
                           >
                             {option.label}
                           </SelectItem>
@@ -190,7 +266,7 @@ const ImageGenerator = () => {
                       value={style}
                       onValueChange={setStyle}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="transition-colors hover:border-primary">
                         <SelectValue placeholder="Select style" />
                       </SelectTrigger>
                       <SelectContent>
@@ -198,6 +274,7 @@ const ImageGenerator = () => {
                           <SelectItem 
                             key={option.value} 
                             value={option.value}
+                            className="transition-colors hover:bg-primary/20"
                           >
                             {option.label}
                           </SelectItem>
@@ -217,6 +294,7 @@ const ImageGenerator = () => {
                       step={1}
                       value={[cfgScale]}
                       onValueChange={(value) => setCfgScale(value[0])}
+                      className="transition-colors hover:bg-primary/20"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Low</span>
@@ -235,6 +313,7 @@ const ImageGenerator = () => {
                       step={1}
                       value={[steps]}
                       onValueChange={(value) => setSteps(value[0])}
+                      className="transition-colors hover:bg-primary/20"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
                       <span>Fast</span>
@@ -245,7 +324,7 @@ const ImageGenerator = () => {
                   <Button 
                     onClick={handleGenerate} 
                     disabled={loading || !prompt.trim() || !stabilityKey}
-                    className="w-full"
+                    className="w-full transition-colors hover:bg-primary/80"
                   >
                     {loading ? (
                       <>
@@ -259,14 +338,14 @@ const ImageGenerator = () => {
                   
                   {!stabilityKey && (
                     <p className="text-sm text-destructive">
-                      Please add your DreamStudio API key in settings
+                      Please add your Stability AI API key in settings
                     </p>
                   )}
                 </div>
               </CardContent>
             </Card>
             
-            <Card className="order-1 md:order-2">
+            <Card className="order-1 md:order-2 transition-shadow hover:shadow-lg">
               <CardHeader>
                 <CardTitle>Preview</CardTitle>
               </CardHeader>
@@ -291,6 +370,7 @@ const ImageGenerator = () => {
                     variant="outline" 
                     size="sm" 
                     onClick={() => downloadImage(currentImage)}
+                    className="transition-colors hover:bg-primary/20"
                   >
                     <Download className="w-4 h-4 mr-1" />
                     Download
@@ -299,6 +379,7 @@ const ImageGenerator = () => {
                     variant="outline" 
                     size="sm" 
                     onClick={() => viewImage(currentImage.id)}
+                    className="transition-colors hover:bg-primary/20"
                   >
                     <Maximize className="w-4 h-4 mr-1" />
                     View
@@ -310,11 +391,15 @@ const ImageGenerator = () => {
         </TabsContent>
         
         <TabsContent value="gallery" className="mt-4">
-          {savedImages.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {loadingImages ? (
+            <div className="flex justify-center p-12">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : savedImages.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6 p-2">
               {savedImages.map((image) => (
-                <div key={image.id} className="relative group">
-                  <div className="aspect-square bg-muted/30 rounded-lg overflow-hidden">
+                <div key={image.id} className="relative group transition-transform hover:scale-105 rounded-xl overflow-hidden">
+                  <div className="aspect-square bg-muted/30 rounded-xl overflow-hidden">
                     <img 
                       src={image.url} 
                       alt={image.prompt}
@@ -322,14 +407,14 @@ const ImageGenerator = () => {
                       onClick={() => viewImage(image.id)}
                     />
                   </div>
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 rounded-lg">
-                    <Button size="icon" variant="secondary" onClick={() => viewImage(image.id)}>
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 rounded-xl">
+                    <Button size="icon" variant="secondary" onClick={() => viewImage(image.id)} className="transition-colors hover:bg-primary/20">
                       <Maximize className="w-4 h-4" />
                     </Button>
-                    <Button size="icon" variant="secondary" onClick={() => downloadImage(image)}>
+                    <Button size="icon" variant="secondary" onClick={() => downloadImage(image)} className="transition-colors hover:bg-primary/20">
                       <Download className="w-4 h-4" />
                     </Button>
-                    <Button size="icon" variant="destructive" onClick={() => handleDeleteImage(image.id)}>
+                    <Button size="icon" variant="destructive" onClick={() => handleDeleteImage(image.id)} className="transition-colors hover:bg-destructive/80">
                       <Trash className="w-4 h-4" />
                     </Button>
                   </div>
@@ -339,7 +424,7 @@ const ImageGenerator = () => {
           ) : (
             <EmptyState 
               title="No saved images yet"
-              description="Generate some images to populate your gallery"
+              description="Generate some images to populate the community gallery"
             />
           )}
         </TabsContent>
@@ -347,56 +432,63 @@ const ImageGenerator = () => {
       
       {/* Full screen image view dialog */}
       <Dialog open={!!viewImageId} onOpenChange={(open) => !open && setViewImageId(null)}>
-        <DialogContent className="max-w-5xl w-full">
+        <DialogContent className="max-w-5xl w-full m-6 p-0 rounded-xl overflow-hidden bg-card/95 backdrop-blur-sm">
           {viewedImage && (
-            <>
-              <DialogHeader>
-                <DialogTitle>Image Details</DialogTitle>
-                <DialogDescription className="line-clamp-2">
-                  {viewedImage.prompt}
-                </DialogDescription>
-              </DialogHeader>
+            <div className="relative">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="absolute top-2 right-2 z-10 bg-black/40 hover:bg-black/60 text-white rounded-full"
+                onClick={() => setViewImageId(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
               
-              <div className="relative">
+              <div>
                 <img 
                   src={viewedImage.url} 
                   alt={viewedImage.prompt} 
-                  className="w-full h-auto rounded-lg"
+                  className="w-full h-auto"
                 />
               </div>
               
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mt-2">
-                <div className="px-2 py-1 bg-secondary rounded">
-                  <span className="block text-xs text-muted-foreground">Size</span>
-                  <span className="font-medium">{viewedImage.params.width} x {viewedImage.params.height}</span>
+              <div className="p-6">
+                <h3 className="text-lg font-semibold mb-2">Image Details</h3>
+                <p className="text-sm text-muted-foreground mb-4">{viewedImage.prompt}</p>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm mt-2">
+                  <div className="px-2 py-1 bg-secondary rounded">
+                    <span className="block text-xs text-muted-foreground">Size</span>
+                    <span className="font-medium">{viewedImage.params.width} x {viewedImage.params.height}</span>
+                  </div>
+                  <div className="px-2 py-1 bg-secondary rounded">
+                    <span className="block text-xs text-muted-foreground">Style</span>
+                    <span className="font-medium capitalize">{viewedImage.params.style || 'Default'}</span>
+                  </div>
+                  <div className="px-2 py-1 bg-secondary rounded">
+                    <span className="block text-xs text-muted-foreground">CFG Scale</span>
+                    <span className="font-medium">{viewedImage.params.cfgScale || 7}</span>
+                  </div>
+                  <div className="px-2 py-1 bg-secondary rounded">
+                    <span className="block text-xs text-muted-foreground">Steps</span>
+                    <span className="font-medium">{viewedImage.params.steps || 30}</span>
+                  </div>
                 </div>
-                <div className="px-2 py-1 bg-secondary rounded">
-                  <span className="block text-xs text-muted-foreground">Style</span>
-                  <span className="font-medium capitalize">{viewedImage.params.style || 'Default'}</span>
-                </div>
-                <div className="px-2 py-1 bg-secondary rounded">
-                  <span className="block text-xs text-muted-foreground">CFG Scale</span>
-                  <span className="font-medium">{viewedImage.params.cfgScale || 7}</span>
-                </div>
-                <div className="px-2 py-1 bg-secondary rounded">
-                  <span className="block text-xs text-muted-foreground">Steps</span>
-                  <span className="font-medium">{viewedImage.params.steps || 30}</span>
+                
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button onClick={() => downloadImage(viewedImage)} className="transition-colors hover:bg-primary/80">
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button variant="destructive" onClick={() => {
+                    handleDeleteImage(viewedImage.id);
+                  }} className="transition-colors hover:bg-destructive/80">
+                    <Trash className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
                 </div>
               </div>
-              
-              <div className="flex justify-end gap-2 mt-2">
-                <Button onClick={() => downloadImage(viewedImage)}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
-                <Button variant="destructive" onClick={() => {
-                  handleDeleteImage(viewedImage.id);
-                }}>
-                  <Trash className="w-4 h-4 mr-2" />
-                  Delete
-                </Button>
-              </div>
-            </>
+            </div>
           )}
         </DialogContent>
       </Dialog>

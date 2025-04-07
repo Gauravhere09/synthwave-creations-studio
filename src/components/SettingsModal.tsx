@@ -18,7 +18,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
   const [geminiKey, setGeminiKey] = useLocalStorage('gemini-key', '');
   const [stabilityKey, setStabilityKey] = useLocalStorage('stability-key', '');
   const [elevenLabsKey, setElevenLabsKey] = useLocalStorage('eleven-labs-key', '');
-  const [ttsMakerKey, setTtsMakerKey] = useLocalStorage('tts-maker-key', '');
 
   const handleSave = () => {
     toast.success('Settings saved successfully');
@@ -33,14 +32,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
       setGeminiKey('');
       setStabilityKey('');
       setElevenLabsKey('');
-      setTtsMakerKey('');
       onOpenChange(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent className="sm:max-w-[600px] transition-shadow hover:shadow-xl">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
@@ -50,8 +48,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
         
         <Tabs defaultValue="api-keys">
           <TabsList className="grid grid-cols-2">
-            <TabsTrigger value="api-keys">API Keys</TabsTrigger>
-            <TabsTrigger value="data">Local Data</TabsTrigger>
+            <TabsTrigger value="api-keys" className="transition-colors hover:bg-primary/20">API Keys</TabsTrigger>
+            <TabsTrigger value="data" className="transition-colors hover:bg-primary/20">Local Data</TabsTrigger>
           </TabsList>
           
           <TabsContent value="api-keys" className="space-y-4 mt-4">
@@ -64,6 +62,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
                   placeholder="Enter your Gemini API Key"
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
+                  className="transition-colors hover:border-primary"
                 />
               </div>
               
@@ -75,6 +74,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
                   placeholder="Enter your DreamStudio API Key"
                   value={stabilityKey}
                   onChange={(e) => setStabilityKey(e.target.value)}
+                  className="transition-colors hover:border-primary"
                 />
               </div>
               
@@ -86,22 +86,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
                   placeholder="Enter your ElevenLabs API Key"
                   value={elevenLabsKey}
                   onChange={(e) => setElevenLabsKey(e.target.value)}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="tts-maker-key">TTS Maker API Key</Label>
-                <Input
-                  id="tts-maker-key"
-                  type="password"
-                  placeholder="Enter your TTS Maker API Key"
-                  value={ttsMakerKey}
-                  onChange={(e) => setTtsMakerKey(e.target.value)}
+                  className="transition-colors hover:border-primary"
                 />
               </div>
             </div>
             
-            <Button onClick={handleSave} className="w-full">
+            <Button onClick={handleSave} className="w-full transition-colors hover:bg-primary/80">
               Save Changes
             </Button>
           </TabsContent>
@@ -111,16 +101,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ open, onOpenChange }) => 
               <div className="p-4 rounded-lg border border-border">
                 <h3 className="font-medium mb-1">Data Storage</h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Your generated scripts, images, and audio are stored locally in your browser. 
-                  Clear this data if you want to remove all saved content.
+                  Your generated content is now stored in Supabase and available for the community to see.
+                  However, your API keys are still stored locally in your browser.
+                  Clear this data if you want to remove all locally saved settings.
                 </p>
                 
                 <Button 
                   variant="destructive" 
                   onClick={clearLocalStorage}
-                  className="w-full"
+                  className="w-full transition-colors hover:bg-destructive/80"
                 >
-                  Clear All Local Data
+                  Clear Local Data
                 </Button>
               </div>
             </div>

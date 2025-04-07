@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Settings } from 'lucide-react';
+import { Settings, Twitter, Instagram } from 'lucide-react';
 import SettingsModal from './SettingsModal';
 import { Button } from './ui/button';
 
@@ -21,7 +21,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="container flex h-16 items-center justify-between">
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center">
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/70">
+              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary/70 transition-transform hover:scale-105">
                 AI Studio
               </span>
             </Link>
@@ -30,7 +30,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <Link
                   key={item.name}
                   to={item.href}
-                  className={`text-sm font-medium transition-colors ${
+                  className={`text-sm font-medium transition-colors hover:text-primary ${
                     location.pathname === item.href
                       ? 'text-primary'
                       : 'text-muted-foreground hover:text-foreground'
@@ -46,6 +46,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               variant="ghost" 
               size="icon" 
               onClick={() => setIsSettingsOpen(true)}
+              className="transition-transform hover:scale-110"
             >
               <Settings className="h-5 w-5" />
               <span className="sr-only">Settings</span>
@@ -58,16 +59,44 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {children}
       </main>
       
+      <footer className="border-t border-border/40 py-6 mt-12">
+        <div className="container flex flex-col md:flex-row items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            © 2025 AI Studio. All rights reserved.
+          </div>
+          <div className="flex items-center gap-4 mt-4 md:mt-0">
+            <a 
+              href="https://twitter.com/yourusername" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Twitter className="h-5 w-5" />
+              <span className="sr-only">Twitter</span>
+            </a>
+            <a 
+              href="https://instagram.com/yourusername" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              <Instagram className="h-5 w-5" />
+              <span className="sr-only">Instagram</span>
+            </a>
+          </div>
+        </div>
+      </footer>
+      
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background border-t border-border p-2">
         <div className="flex justify-around">
           {navigation.map((item) => (
             <Link
               key={item.name}
               to={item.href}
-              className={`p-2 rounded-md flex flex-col items-center ${
+              className={`p-2 rounded-md flex flex-col items-center transition-colors ${
                 location.pathname === item.href
                   ? 'text-primary bg-secondary/50'
-                  : 'text-muted-foreground'
+                  : 'text-muted-foreground hover:text-primary'
               }`}
             >
               <span className="text-xs">{item.name}</span>

@@ -8,6 +8,9 @@ export async function generateScript(prompt: string, apiKey: string): Promise<Sc
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
   
   try {
+    // Enhance the prompt with expert scriptwriting context
+    const enhancedPrompt = `As an expert and experienced professional scriptwriter with deep knowledge of narrative structure, character development, and compelling dialogue, please write a high-quality script based on the following request. Focus on creating engaging, well-structured content with proper formatting and natural dialogue. Avoid using asterisks or excessive punctuation. Create professional-grade material ready for production:\n\n${prompt}`;
+    
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -18,7 +21,7 @@ export async function generateScript(prompt: string, apiKey: string): Promise<Sc
           {
             parts: [
               {
-                text: prompt
+                text: enhancedPrompt
               }
             ]
           }

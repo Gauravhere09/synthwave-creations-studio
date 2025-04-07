@@ -1,25 +1,24 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
-import { Slider } from '../components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { generateScript } from '../services/geminiService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { useToast } from '../hooks/use-toast';
 import EmptyState from '../components/EmptyState';
+import { supabase } from '../integrations/supabase/client';
 
 interface SavedScript {
   id: string;
   title: string;
   prompt: string;
   content: string;
-  createdAt: number;
+  created_at: string | number;
 }
 
 const ScriptGenerator = () => {
@@ -27,7 +26,36 @@ const ScriptGenerator = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [generatedScript, setGeneratedScript] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
-  const [savedScripts, setSavedScripts] = useLocalStorage<SavedScript[]>('saved-scripts', []);
+  const [loadingScripts, setLoadingScripts] = useState<boolean>(false);
+  const [savedScripts, setSavedScripts] = useState<SavedScript[]>([]);
+
+  // Fetch scripts from Supabase on component mount
+  useEffect(() => {
+    fetchScripts();
+  }, []);
+
+  const fetchScripts = async () => {
+    setLoadingScripts(true);
+    try {
+      const { data, error } = await supabase
+        .from('scripts')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw error;
+      }
+      
+      if (data) {
+        setSavedScripts(data);
+      }
+    } catch (error) {
+      console.error('Error fetching scripts:', error);
+      toast.error('Failed to load saved scripts');
+    } finally {
+      setLoadingScripts(false);
+    }
+  };
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {
@@ -56,7 +84,7 @@ const ScriptGenerator = () => {
     }
   };
 
-  const handleSaveScript = () => {
+  const handleSaveScript = async () => {
     if (!generatedScript.trim()) {
       toast.error('No script to save');
       return;
@@ -64,21 +92,47 @@ const ScriptGenerator = () => {
 
     const scriptTitle = prompt.split(' ').slice(0, 5).join(' ') + '...';
     
-    const newScript: SavedScript = {
-      id: `script_${Date.now()}`,
-      title: scriptTitle,
-      prompt,
-      content: generatedScript,
-      createdAt: Date.now(),
-    };
-
-    setSavedScripts([newScript, ...savedScripts]);
-    toast.success('Script saved successfully');
+    try {
+      const { data, error } = await supabase
+        .from('scripts')
+        .insert([
+          {
+            title: scriptTitle,
+            prompt: prompt,
+            content: generatedScript,
+          }
+        ])
+        .select();
+      
+      if (error) {
+        throw error;
+      }
+      
+      toast.success('Script saved successfully');
+      fetchScripts(); // Refresh the scripts list
+    } catch (error) {
+      console.error('Error saving script:', error);
+      toast.error('Failed to save script');
+    }
   };
 
-  const handleDeleteScript = (id: string) => {
-    setSavedScripts(savedScripts.filter(script => script.id !== id));
-    toast.success('Script deleted');
+  const handleDeleteScript = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('scripts')
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      setSavedScripts(savedScripts.filter(script => script.id !== id));
+      toast.success('Script deleted');
+    } catch (error) {
+      console.error('Error deleting script:', error);
+      toast.error('Failed to delete script');
+    }
   };
 
   const handleLoadScript = (script: SavedScript) => {
@@ -87,7 +141,7 @@ const ScriptGenerator = () => {
   };
 
   return (
-    <div>
+    <div className="transition-all hover:scale-[1.01]">
       <PageTitle 
         title="Script Generator" 
         description="Create scripts using Gemini AI" 
@@ -95,12 +149,12 @@ const ScriptGenerator = () => {
 
       <Tabs defaultValue="generate">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="saved">Saved Scripts</TabsTrigger>
+          <TabsTrigger value="generate" className="transition-colors hover:bg-primary/20">Generate</TabsTrigger>
+          <TabsTrigger value="saved" className="transition-colors hover:bg-primary/20">Community Scripts</TabsTrigger>
         </TabsList>
         
         <TabsContent value="generate" className="space-y-4 mt-4">
-          <Card>
+          <Card className="transition-shadow hover:shadow-lg">
             <CardHeader>
               <CardTitle>Script Prompt</CardTitle>
             </CardHeader>
@@ -113,14 +167,14 @@ const ScriptGenerator = () => {
                     placeholder="Enter your script idea, e.g., 'Create a movie script about a detective who can talk to plants'"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    className="min-h-32"
+                    className="min-h-32 transition-colors hover:border-primary"
                   />
                 </div>
                 
                 <Button 
                   onClick={handleGenerate} 
                   disabled={loading || !prompt.trim() || !geminiKey}
-                  className="w-full"
+                  className="w-full transition-colors hover:bg-primary/80"
                 >
                   {loading ? (
                     <>
@@ -142,15 +196,16 @@ const ScriptGenerator = () => {
           </Card>
           
           {generatedScript && (
-            <Card>
+            <Card className="transition-shadow hover:shadow-lg">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Generated Script</CardTitle>
                 <Button 
                   variant="ghost" 
                   size="sm" 
                   onClick={handleSaveScript}
+                  className="transition-colors hover:bg-primary/20"
                 >
-                  Save Script
+                  Share Script
                 </Button>
               </CardHeader>
               <CardContent>
@@ -163,10 +218,14 @@ const ScriptGenerator = () => {
         </TabsContent>
         
         <TabsContent value="saved" className="mt-4">
-          {savedScripts.length > 0 ? (
+          {loadingScripts ? (
+            <div className="flex justify-center p-12">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : savedScripts.length > 0 ? (
             <div className="space-y-4">
               {savedScripts.map((script) => (
-                <Card key={script.id}>
+                <Card key={script.id} className="transition-shadow hover:shadow-lg">
                   <CardHeader>
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-lg truncate">{script.title}</CardTitle>
@@ -175,6 +234,7 @@ const ScriptGenerator = () => {
                           variant="outline" 
                           size="sm" 
                           onClick={() => handleLoadScript(script)}
+                          className="transition-colors hover:bg-primary/20"
                         >
                           Load
                         </Button>
@@ -182,13 +242,14 @@ const ScriptGenerator = () => {
                           variant="destructive" 
                           size="sm" 
                           onClick={() => handleDeleteScript(script.id)}
+                          className="transition-colors hover:bg-destructive/80"
                         >
                           Delete
                         </Button>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(script.createdAt).toLocaleDateString()}
+                      {new Date(script.created_at).toLocaleDateString()}
                     </p>
                   </CardHeader>
                   <CardContent>
@@ -202,7 +263,7 @@ const ScriptGenerator = () => {
           ) : (
             <EmptyState 
               title="No saved scripts yet"
-              description="Generate and save scripts to see them here"
+              description="Generate and share scripts to see them here"
             />
           )}
         </TabsContent>
