@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../components/ui/card';
@@ -15,18 +14,10 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
 import { supabase } from '../integrations/supabase/client';
 import { Trash, Play, Pause, Download, Clock, Volume2 } from 'lucide-react';
+import { SavedAudio } from '../types/supabase';
 
-// Import only the ElevenLabs service since we're removing TTS Maker
-import { synthesizeSpeech, Voice, getVoices } from '../services/elevenlabsService';
-
-interface SavedAudio {
-  id: string;
-  title: string;
-  text: string;
-  url: string;
-  voice_id: string;
-  created_at: string | number;
-}
+// Import the ElevenLabs service
+import { getVoices, synthesizeSpeech, Voice, ELEVEN_LABS_VOICES } from '../services/elevenlabsService';
 
 const VoiceGenerator = () => {
   const [elevenLabsKey] = useLocalStorage<string>('eleven-labs-key', '');
@@ -52,6 +43,11 @@ const VoiceGenerator = () => {
   useEffect(() => {
     if (elevenLabsKey) {
       fetchVoices();
+    } else {
+      setVoices(ELEVEN_LABS_VOICES);
+      if (ELEVEN_LABS_VOICES.length > 0) {
+        setVoiceId(ELEVEN_LABS_VOICES[0].voice_id);
+      }
     }
     fetchSavedAudios();
     

@@ -17,6 +17,7 @@ export interface GeneratedImage {
   timestamp: number;
   base64Image: string;
   params: ImageGenerationParams;
+  base64_image?: string; // Added for compatibility with Supabase
 }
 
 export async function generateImage(
@@ -83,6 +84,7 @@ export async function generateImage(
         prompt: params.prompt,
         timestamp,
         base64Image,
+        base64_image: base64Image, // Added for compatibility with Supabase
         params,
       };
     });

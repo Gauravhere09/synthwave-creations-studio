@@ -10,22 +10,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { generateImage, ImageGenerationParams } from '../services/stabilityService';
+import { generateImage, ImageGenerationParams, GeneratedImage as StabilityGeneratedImage } from '../services/stabilityService';
 import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
 import { Input } from '../components/ui/input';
 import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
+import { SavedImage } from '../types/supabase';
 
-interface GeneratedImage {
-  id: string;
-  url: string;
-  prompt: string;
+interface GeneratedImage extends SavedImage {
   timestamp?: number;
-  created_at?: string;
-  base64_image: string;
-  params: ImageGenerationParams;
 }
 
 const RESOLUTION_OPTIONS = [
@@ -81,7 +76,7 @@ const ImageGenerator = () => {
       }
       
       if (data) {
-        setSavedImages(data);
+        setSavedImages(data as GeneratedImage[]);
       }
     } catch (error) {
       console.error('Error fetching images:', error);
@@ -120,7 +115,18 @@ const ImageGenerator = () => {
         toast.error(result.error);
       } else if (result.images && result.images.length > 0) {
         const generatedImage = result.images[0];
-        setCurrentImage(generatedImage);
+        
+        // Convert to the format needed for our component
+        const imageForComponent: GeneratedImage = {
+          id: generatedImage.id,
+          prompt: generatedImage.prompt,
+          url: generatedImage.url,
+          base64_image: generatedImage.base64Image,
+          params: generatedImage.params,
+          created_at: new Date().toISOString(),
+        };
+        
+        setCurrentImage(imageForComponent);
         
         // Save to Supabase
         const { data, error } = await supabase

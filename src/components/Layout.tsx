@@ -66,22 +66,24 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
           <div className="flex items-center gap-4 mt-4 md:mt-0">
             <a 
-              href="https://twitter.com/yourusername" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-primary transition-colors"
-            >
-              <Twitter className="h-5 w-5" />
-              <span className="sr-only">Twitter</span>
-            </a>
-            <a 
               href="https://instagram.com/yourusername" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-primary transition-colors"
+              className="text-muted-foreground hover:text-primary transition-colors hover:scale-110 transform"
+              aria-label="Instagram"
             >
               <Instagram className="h-5 w-5" />
               <span className="sr-only">Instagram</span>
+            </a>
+            <a 
+              href="https://twitter.com/yourusername" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-primary transition-colors hover:scale-110 transform"
+              aria-label="Twitter"
+            >
+              <Twitter className="h-5 w-5" />
+              <span className="sr-only">Twitter</span>
             </a>
           </div>
         </div>

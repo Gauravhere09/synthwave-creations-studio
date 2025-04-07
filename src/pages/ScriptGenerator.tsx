@@ -12,6 +12,7 @@ import PageTitle from '../components/PageTitle';
 import LoadingSpinner from '../components/LoadingSpinner';
 import EmptyState from '../components/EmptyState';
 import { supabase } from '../integrations/supabase/client';
+import { Script } from '../types/supabase';
 
 interface SavedScript {
   id: string;
