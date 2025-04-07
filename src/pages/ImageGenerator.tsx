@@ -3,6 +3,7 @@ import { useLocalStorage } from '../hooks/use-local-storage';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { Download, Trash, Maximize } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
@@ -20,6 +21,7 @@ interface GenerationParams {
   samples: number;
   cfgScale: number;
   steps: number;
+  [key: string]: string | number | undefined; // Add index signature to make it compatible with Json
 }
 
 const ImageGenerator = () => {
@@ -133,7 +135,7 @@ const ImageGenerator = () => {
           prompt: prompt,
           url: imageUrl,
           base64_image: base64Image,
-          params: params,
+          params: params as any, // Use type assertion here to resolve the Json compatibility issue
         });
 
       if (error) {
