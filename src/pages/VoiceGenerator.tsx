@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '../hooks/use-local-storage';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
@@ -13,16 +13,8 @@ import EmptyState from '../components/EmptyState';
 import PageTitle from '../components/PageTitle';
 import { Download, Trash, X, Maximize, Share, Edit } from 'lucide-react';
 import { synthesizeSpeech, getVoices, Voice } from '../services/elevenlabsService';
-
-interface SavedAudio {
-  id: string;
-  title: string;
-  text: string;
-  url: string;
-  voice_id?: string;
-  user_id?: string;
-  created_at: string;
-}
+import { Dialog, DialogContent } from '../components/ui/dialog';
+import { SavedAudio } from '../types/supabase';
 
 const VoiceGenerator = () => {
   const [elevenLabsKey] = useLocalStorage<string>('elevenlabs-key', '');
